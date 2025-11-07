@@ -167,3 +167,4 @@ CREATE TABLE "Conversation" (
 - Add metrics tracking (avg resolution time, etc.)
 - Email notifications for long-unresolved conversations
 
+

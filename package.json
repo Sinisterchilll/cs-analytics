@@ -16,7 +16,6 @@
     "axios": "^1.13.1",
     "dotenv": "^16.4.5",
     "next": "16.0.1",
-    "node-cron": "^3.0.3",
     "openai": "^4.67.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -25,7 +24,6 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/node-cron": "^3.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

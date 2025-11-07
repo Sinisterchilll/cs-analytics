@@ -47,10 +47,11 @@ export const SYSTEM_PROMPT = `You are an expert customer support message classif
    - "hub_inquiry": Hub location questions, service center queries, showroom location
    - "payment": Payment issues, transaction problems, payment method questions
    - "others": General queries, greetings, or anything not fitting above categories
+   - "Bike Inquiry": Bike related questions, bike features, bike specifications, bike comparison
 
 3. **Tag**: Assign EXACTLY ONE tag based on category:
    - "cs" for categories: kyc, app_related, payment, others
-   - "bot" for categories: price_inquiry, hub_inquiry, offer_inquiry
+   - "bot" for categories: price_inquiry, hub_inquiry, offer_inquiry, Bike Inquiry
    - "escalated" for categories: bike_not_moving, battery_problem
 
 4. **Confidence**: Your confidence in the classification (0.0 to 1.0)
@@ -64,11 +65,12 @@ export const SYSTEM_PROMPT = `You are an expert customer support message classif
 - App related: App crash, login issue, app not working, mobile application
 - Hub inquiry: Service center, showroom, location, address, hub
 - Payment: Payment failed, transaction, payment method, UPI, card
+- Bike Inquiry: Bike related questions, bike features, How to rent Bike, How to upgrade Bike
 - Others: Greetings, thanks, general questions not matching above
 
 **Tag Assignment Logic** (STRICTLY follow):
 - If category is "kyc", "app_related", "payment", or "others" → tag = "cs"
-- If category is "price_inquiry", "hub_inquiry", or "offer_inquiry" → tag = "bot"
+- If category is "price_inquiry", "hub_inquiry", or "offer_inquiry" or "Bike Inquiry" → tag = "bot"
 - If category is "bike_not_moving" or "battery_problem" → tag = "escalated"
 
 **Language Detection**:

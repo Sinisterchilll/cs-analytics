@@ -32,3 +32,4 @@ jobs:
           FRESHCHAT_DOMAIN: ${{ secrets.FRESHCHAT_DOMAIN }}
           VERBOSE_LOG: '0'
 
+

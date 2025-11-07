@@ -9,7 +9,6 @@ if (fs.existsSync(localEnvPath)) {
   dotenv.config();
 }
 import axios from 'axios';
-import cron from 'node-cron';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) as string | undefined;
@@ -332,38 +331,22 @@ async function fetchAndStore() {
   });
 }
 
-async function runCycle() {
+async function main() {
   // eslint-disable-next-line no-console
-  console.log('--- Fetch Cycle Start ---');
+  console.log('=== Fetch Cycle Start ===');
   try {
     await fetchAndStore();
     // eslint-disable-next-line no-console
-    console.log('--- Fetch Cycle Complete ---');
+    console.log('=== Fetch Cycle Complete ===');
+    process.exit(0);
   } catch (e: any) {
     // eslint-disable-next-line no-console
     console.error('Fetch cycle failed:', e?.message);
+    process.exit(1);
   }
 }
 
-// Run fetch immediately on start
-void runCycle();
-
-// Schedule: Fetch new/updated data every 2 hours at :00
-// Runs at: 00:00, 02:00, 04:00, 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00
-cron.schedule('0 */2 * * *', async () => {
-  await runCycle();
-});
-
-process.on('SIGINT', async () => {
-  // eslint-disable-next-line no-console
-  console.log('Shutting down...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  // eslint-disable-next-line no-console
-  console.log('Shutting down...');
-  process.exit(0);
-});
+// Run once and exit
+main();
 
 
