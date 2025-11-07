@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id
+  phone_no     String
+  created_time DateTime
+  conversations Conversation[]
+}
+
+model Conversation {
+  id                String   @id
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status            String
+  channel_id        String
+  created_time      DateTime
+  updated_time      DateTime
+  assigned_to       String
+  custom_properties Json
+  messages          Message[]
+  @@index([userId])
+  @@index([created_time])
+  @@index([updated_time])
+}
+
+model Message {
+  id              String   @id
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actor_type      String
+  message_parts   Json
+  created_time    DateTime
+  rating          Int?
+  @@index([conversationId])
+  @@index([created_time])
+}
+
+model AggregatedMetric {
+  id               Int       @id @default(autoincrement())
+  fetch_time       DateTime  @unique
+  resolutionRate   Float
+  transferRate     Float
+  resolutionSplit  Json
+  csatAvg          Float?
+  sessionVolume    Int
+  avgResponseTime  Float
+  unansweredCount  Int
+}
+
+

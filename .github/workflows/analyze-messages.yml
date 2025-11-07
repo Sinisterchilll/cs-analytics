@@ -1,0 +1,26 @@
+name: Analyze messages with LLM
+
+on:
+  schedule:
+    - cron: '20 */2 * * *' # Run 20 minutes after fetch (every 2 hours)
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Run message analysis
+        run: npm run analyze:run
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MAX_CONVERSATIONS: '100'
+          VERBOSE_LOG: '0'
+

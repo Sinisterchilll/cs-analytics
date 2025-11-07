@@ -1,0 +1,28 @@
+name: Freshchat fetch every 2 hours
+
+on:
+  schedule:
+    - cron: '0 */2 * * *' # every two hours (UTC)
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Run hourly fetcher
+        run: npm run fetch:run
+        env:
+          FRESHCHAT_TOKEN: ${{ secrets.FRESHCHAT_TOKEN }}
+          FRESHCHAT_DOMAIN: ${{ secrets.FRESHCHAT_DOMAIN }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          LOOKBACK_HOURS: '2'
+          VERBOSE_LOG: '0'
+
+
