@@ -9,7 +9,8 @@
     "lint": "eslint",
     "fetch:run": "tsx fetchData.ts",
     "refetch:run": "tsx refetchUnresolved.ts",
-    "analyze:run": "tsx analyzeMessages.ts"
+    "analyze:run": "tsx analyzeMessages.ts",
+    "backfill:run": "tsx backfillMessages.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

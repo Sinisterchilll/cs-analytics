@@ -217,9 +217,8 @@ async function fetchConversation(conversationId: string) {
 
 // Note: Freshchat public docs do not expose a global conversations list; use per-user listing.
 
-async function fetchConversationMessages(conversationId: string, fromISO: string) {
+async function fetchConversationMessages(conversationId: string) {
   const msgs = await paginate(`/conversations/${conversationId}/messages`, {
-    from_time: fromISO,
     items_per_page: 50,
     page: 1,
   }, 'messages');
@@ -288,7 +287,7 @@ async function fetchAndStore() {
           await upsertConversation({ ...convoDetail, userId: user.id }, convoId);
           convsUpserted += 1;
 
-          const messages = await fetchConversationMessages(convoId, windowStartISO);
+          const messages = await fetchConversationMessages(convoId);
           if (VERBOSE_LOG) console.log(`[Fetch] Conversation ${convoId} messages fetched: ${messages.length}`);
           
           // Filter out system messages (not needed for analytics)
