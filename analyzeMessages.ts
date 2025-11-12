@@ -70,11 +70,31 @@ async function fetchMessagesForAnalysis(): Promise<Map<string, Message[]>> {
     throw error;
   }
 
-  // Filter out already analyzed messages
-  const messages = (allMessages || []).filter(m => !analyzedIds.has(m.id));
+  // Filter out already analyzed messages and short messages
+  let skippedShort = 0;
+  const messages = (allMessages || [])
+    .filter(m => !analyzedIds.has(m.id))
+    .filter(m => {
+      // Skip very short messages (≤2 words or ≤10 characters)
+      const text = m.message_parts.trim();
+      const wordCount = text.split(/\s+/).filter((w: string) => w.length > 0).length;
+      const charCount = text.length;
+      
+      if (wordCount <= 2 || charCount <= 10) {
+        skippedShort++;
+        if (VERBOSE_LOG) {
+          console.log(`[Filter] Skipping short message (${wordCount} words, ${charCount} chars): "${text.substring(0, 30)}"`);
+        }
+        return false;
+      }
+      
+      return true;
+    });
 
   if (VERBOSE_LOG) {
-    console.log(`[Fetch] Found ${messages.length} unanalyzed messages (filtered from ${allMessages?.length || 0} total)`);
+    console.log(`[Fetch] Found ${messages.length} unanalyzed messages (filtered from ${allMessages?.length || 0} total, skipped ${skippedShort} short messages)`);
+  } else {
+    console.log(`[Fetch] Found ${messages.length} unanalyzed messages (skipped ${skippedShort} short messages)`);
   }
 
   // Group by conversation
@@ -141,47 +161,52 @@ async function analyzeConversation(conversationId: string, messages: Message[]):
       console.log(`[Analyze] ✓ Stored ${analyses.length} analyses for conversation ${conversationId}`);
     }
 
-  } catch (error: any) {
-    console.error(`[Analyze] Failed conversation ${conversationId}:`, error?.message);
+  } catch (error: unknown) {
+    const err = error as { message?: string; status?: number; name?: string };
+    console.error(`[Analyze] Failed conversation ${conversationId}:`, err?.message);
     
     // Record failure for retry
-    const errorType = error?.status === 429 ? 'rate_limit' 
-                    : error?.status >= 500 ? 'api_error'
-                    : error?.name === 'SyntaxError' ? 'parse_error'
+    const errorType = err?.status === 429 ? 'rate_limit' 
+                    : err?.status && err.status >= 500 ? 'api_error'
+                    : err?.name === 'SyntaxError' ? 'parse_error'
                     : 'unknown_error';
 
     const nextRetry = new Date();
     nextRetry.setHours(nextRetry.getHours() + 1); // Retry in 1 hour
 
     for (const msg of messages) {
-      await supabase
+      // First, check if failure already exists
+      const { data: existing } = await supabase
         .from('AnalysisFailures')
-        .upsert({
-          message_id: msg.id,
-          conversation_id: conversationId,
-          error_message: error?.message || 'Unknown error',
-          error_type: errorType,
-          attempts: 1,
-          next_retry: nextRetry.toISOString(),
-        }, { 
-          onConflict: 'message_id',
-          // @ts-ignore - Supabase typing issue
-          ignoreDuplicates: false 
-        })
-        .then(({ data: existing }) => {
-          // If already exists, increment attempts
-          if (existing) {
-            return supabase
-              .from('AnalysisFailures')
-              .update({
-                attempts: supabase.sql`attempts + 1`,
-                last_attempt: new Date().toISOString(),
-                next_retry: nextRetry.toISOString(),
-                error_message: error?.message || 'Unknown error',
-              })
-              .eq('message_id', msg.id);
-          }
-        });
+        .select('attempts')
+        .eq('message_id', msg.id)
+        .single();
+
+      if (existing) {
+        // Update existing failure record
+        await supabase
+          .from('AnalysisFailures')
+          .update({
+            attempts: existing.attempts + 1,
+            last_attempt: new Date().toISOString(),
+            next_retry: nextRetry.toISOString(),
+            error_message: err?.message || 'Unknown error',
+            error_type: errorType,
+          })
+          .eq('message_id', msg.id);
+      } else {
+        // Insert new failure record
+        await supabase
+          .from('AnalysisFailures')
+          .insert({
+            message_id: msg.id,
+            conversation_id: conversationId,
+            error_message: err?.message || 'Unknown error',
+            error_type: errorType,
+            attempts: 1,
+            next_retry: nextRetry.toISOString(),
+          });
+      }
     }
   }
 }
@@ -191,10 +216,8 @@ async function analyzeConversation(conversationId: string, messages: Message[]):
  */
 async function retryFailedMessages(): Promise<void> {
   const { data: failures, error } = await supabase
-    .from('AnalysisFailures')
+    .from('FailedMessagesForRetry')
     .select('message_id, conversation_id, attempts')
-    .lte('next_retry', new Date().toISOString())
-    .lt('attempts', 3)
     .limit(50);
 
   if (error || !failures?.length) {
@@ -263,7 +286,7 @@ async function runAnalysis(): Promise<void> {
       try {
         await analyzeConversation(convId, messages);
         analyzed += messages.length;
-      } catch (error) {
+      } catch {
         failed += messages.length;
       }
 
@@ -283,8 +306,9 @@ async function runAnalysis(): Promise<void> {
       durationSeconds: duration
     });
 
-  } catch (error: any) {
-    console.error('[Analyze] Fatal error:', error?.message);
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    console.error('[Analyze] Fatal error:', err?.message);
     throw error;
   }
 
@@ -294,7 +318,7 @@ async function runAnalysis(): Promise<void> {
 // Run analysis
 runAnalysis()
   .then(() => process.exit(0))
-  .catch((error) => {
+  .catch((error: unknown) => {
     console.error('Analysis failed:', error);
     process.exit(1);
   });

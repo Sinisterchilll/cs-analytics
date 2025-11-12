@@ -47,6 +47,9 @@ WHERE ma.id IS NULL  -- not yet analyzed
   AND m.message_parts != ''
   AND m.actor_type = 'user'  -- only analyze user messages
   AND (af.message_id IS NULL OR af.attempts < 3)  -- not failed or has retries left
+  -- Filter out short messages (≤2 words or ≤10 characters)
+  AND array_length(regexp_split_to_array(TRIM(m.message_parts), E'\\s+'), 1) > 2
+  AND LENGTH(TRIM(m.message_parts)) > 10
 ORDER BY m.created_time DESC;
 
 -- View for failed messages ready for retry
@@ -63,10 +66,13 @@ JOIN "Message" m ON af.message_id = m.id
 WHERE af.next_retry IS NOT NULL
   AND af.next_retry <= NOW()
   AND af.attempts < 3
+  -- Filter out short messages (≤2 words or ≤10 characters)
+  AND array_length(regexp_split_to_array(TRIM(m.message_parts), E'\\s+'), 1) > 2
+  AND LENGTH(TRIM(m.message_parts)) > 10
 ORDER BY af.next_retry ASC;
 
 COMMENT ON TABLE "MessageAnalysis" IS 'Stores LLM analysis results for messages including language, category, and tags';
 COMMENT ON TABLE "AnalysisFailures" IS 'Tracks failed analysis attempts for retry with exponential backoff';
-COMMENT ON VIEW "MessagesNeedingAnalysis" IS 'Messages that need LLM analysis (not yet analyzed and not permanently failed)';
-COMMENT ON VIEW "FailedMessagesForRetry" IS 'Failed messages ready for retry based on backoff schedule';
+COMMENT ON VIEW "MessagesNeedingAnalysis" IS 'Messages that need LLM analysis (excludes short messages, already analyzed, and permanently failed)';
+COMMENT ON VIEW "FailedMessagesForRetry" IS 'Failed messages ready for retry based on backoff schedule (excludes short messages)';
 

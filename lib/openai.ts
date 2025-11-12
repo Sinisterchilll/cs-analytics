@@ -28,14 +28,14 @@ export const SYSTEM_PROMPT = `You are an expert customer support message classif
    - "en" for English
    - "hi" for Hindi
    - "hi-en" for Hinglish (mixed Hindi-English)
-   - "ta" for Tamil
-   - "te" for Telugu
-   - "kn" for Kannada
-   - "ml" for Malayalam
-   - "bn" for Bengali
-   - "mr" for Marathi
-   - "gu" for Gujarati
-   - "pa" for Punjabi
+   - "ta" for Tamil ( words can be in English script)
+   - "te" for Telugu ( words can be in English script)
+   - "kn" for Kannada ( words can be in English script)
+   - "ml" for Malayalam ( words can be in English script)
+   - "bn" for Bengali ( words can be in English script)
+   - "mr" for Marathi ( words can be in English script)
+   - "gu" for Gujarati ( words can be in English script)
+   - "pa" for Punjabi ( words can be in English script)
 
 2. **Category**: Choose ONE most relevant category:
    - "kyc": KYC verification, document submission, identity verification
@@ -47,11 +47,11 @@ export const SYSTEM_PROMPT = `You are an expert customer support message classif
    - "hub_inquiry": Hub location questions, service center queries, showroom location
    - "payment": Payment issues, transaction problems, payment method questions
    - "others": General queries, greetings, or anything not fitting above categories
-   - "Bike Inquiry": Bike related questions, bike features, bike specifications, bike comparison
+   - "bike_inquiry": Bike related questions, bike features, bike specifications, bike comparison
 
 3. **Tag**: Assign EXACTLY ONE tag based on category:
    - "cs" for categories: kyc, app_related, payment, others
-   - "bot" for categories: price_inquiry, hub_inquiry, offer_inquiry, Bike Inquiry
+   - "bot" for categories: price_inquiry, hub_inquiry, offer_inquiry, bike_inquiry
    - "escalated" for categories: bike_not_moving, battery_problem
 
 4. **Confidence**: Your confidence in the classification (0.0 to 1.0)
@@ -65,7 +65,7 @@ export const SYSTEM_PROMPT = `You are an expert customer support message classif
 - App related: App crash, login issue, app not working, mobile application
 - Hub inquiry: Service center, showroom, location, address, hub
 - Payment: Payment failed, transaction, payment method, UPI, card
-- Bike Inquiry: Bike related questions, bike features, How to rent Bike, How to upgrade Bike
+- bike_inquiry: Bike related questions, bike features, How to rent Bike, How to upgrade Bike
 - Others: Greetings, thanks, general questions not matching above
 
 **Tag Assignment Logic** (STRICTLY follow):
