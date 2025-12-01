@@ -19,9 +19,7 @@ jobs:
         env:
           FRESHCHAT_TOKEN: ${{ secrets.FRESHCHAT_TOKEN }}
           FRESHCHAT_DOMAIN: ${{ secrets.FRESHCHAT_DOMAIN }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           LOOKBACK_HOURS: '2'
           VERBOSE_LOG: '0'
 
