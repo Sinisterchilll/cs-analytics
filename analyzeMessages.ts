@@ -10,21 +10,14 @@ if (fs.existsSync(localEnvPath)) {
   dotenv.config();
 }
 
-import { createClient } from '@supabase/supabase-js';
+import { prisma } from './lib/prisma';
 import { analyzeMessagesWithRetry, MODEL } from './lib/openai';
 
-const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) as string | undefined;
-const SUPABASE_SERVICE_ROLE_KEY = (process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) as string | undefined;
-const SUPABASE_ANON_KEY = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) as string | undefined;
-
-if (!SUPABASE_URL || (!SUPABASE_SERVICE_ROLE_KEY && !SUPABASE_ANON_KEY)) {
-  console.error('Missing Supabase envs');
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('Missing DATABASE_URL environment variable.');
   process.exit(1);
 }
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY!, {
-  auth: { persistSession: false },
-});
 
 const VERBOSE_LOG = String(process.env.VERBOSE_LOG || '') === '1';
 const MAX_MESSAGES_PER_BATCH = 20; // Max messages to analyze in single OpenAI call
@@ -32,10 +25,10 @@ const MAX_CONVERSATIONS_TO_PROCESS = Number(process.env.MAX_CONVERSATIONS || 100
 
 interface Message {
   id: string;
-  conversationid: string;
+  conversationId: string;
   actor_type: string;
-  message_parts: string;
-  created_time: string;
+  message_parts: string | any; // Can be string or JSON
+  created_time: Date | string;
 }
 
 interface AnalysisResult {
@@ -50,57 +43,69 @@ interface AnalysisResult {
  */
 async function fetchMessagesForAnalysis(): Promise<Map<string, Message[]>> {
   // First get all analyzed message IDs
-  const { data: analyzedMessages } = await supabase
-    .from('MessageAnalysis')
-    .select('message_id');
+  const analyzedMessages = await prisma.messageAnalysis.findMany({
+    select: { messageId: true },
+  });
   
-  const analyzedIds = new Set((analyzedMessages || []).map(m => m.message_id));
+  const analyzedIds = new Set(analyzedMessages.map(m => m.messageId));
 
   // Fetch all user messages
-  const { data: allMessages, error } = await supabase
-    .from('Message')
-    .select('id, conversationid, actor_type, message_parts, created_time')
-    .eq('actor_type', 'user') // Only analyze user messages
-    .neq('message_parts', '')
-    .order('created_time', { ascending: false })
-    .limit(1000); // Fetch up to 1000 messages
-
-  if (error) {
-    console.error('[Fetch] Error fetching messages:', error);
-    throw error;
-  }
+  const allMessages = await prisma.message.findMany({
+    where: {
+      actor_type: 'user',
+      message_parts: { not: '' },
+    },
+    select: {
+      id: true,
+      conversationId: true,
+      actor_type: true,
+      message_parts: true,
+      created_time: true,
+    },
+    orderBy: { created_time: 'desc' },
+    take: 1000,
+  });
 
   // Filter out already analyzed messages and short messages
   let skippedShort = 0;
-  const messages = (allMessages || [])
+  const messages = allMessages
     .filter(m => !analyzedIds.has(m.id))
     .filter(m => {
-      // Skip very short messages (≤2 words or ≤10 characters)
-      const text = m.message_parts.trim();
-      const wordCount = text.split(/\s+/).filter((w: string) => w.length > 0).length;
-      const charCount = text.length;
+      // Handle message_parts - it's stored as string in the database
+      const text = typeof m.message_parts === 'string' 
+        ? m.message_parts 
+        : String(m.message_parts || '');
+      const trimmedText = text.trim();
+      const wordCount = trimmedText.split(/\s+/).filter((w: string) => w.length > 0).length;
+      const charCount = trimmedText.length;
       
       if (wordCount <= 2 || charCount <= 10) {
         skippedShort++;
         if (VERBOSE_LOG) {
-          console.log(`[Filter] Skipping short message (${wordCount} words, ${charCount} chars): "${text.substring(0, 30)}"`);
+          console.log(`[Filter] Skipping short message (${wordCount} words, ${charCount} chars): "${trimmedText.substring(0, 30)}"`);
         }
         return false;
       }
       
       return true;
-    });
+    })
+    .map(m => ({
+      ...m,
+      message_parts: typeof m.message_parts === 'string' 
+        ? m.message_parts 
+        : JSON.stringify(m.message_parts),
+    }));
 
   if (VERBOSE_LOG) {
-    console.log(`[Fetch] Found ${messages.length} unanalyzed messages (filtered from ${allMessages?.length || 0} total, skipped ${skippedShort} short messages)`);
+    console.log(`[Fetch] Found ${messages.length} unanalyzed messages (filtered from ${allMessages.length} total, skipped ${skippedShort} short messages)`);
   } else {
     console.log(`[Fetch] Found ${messages.length} unanalyzed messages (skipped ${skippedShort} short messages)`);
   }
 
   // Group by conversation
   const conversationMap = new Map<string, Message[]>();
-  for (const msg of messages || []) {
-    const convId = msg.conversationid;
+  for (const msg of messages) {
+    const convId = msg.conversationId;
     if (!conversationMap.has(convId)) {
       conversationMap.set(convId, []);
     }
@@ -109,7 +114,11 @@ async function fetchMessagesForAnalysis(): Promise<Map<string, Message[]>> {
 
   // Sort messages within each conversation by created_time
   for (const msgs of conversationMap.values()) {
-    msgs.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+    msgs.sort((a, b) => {
+      const aTime = a.created_time instanceof Date ? a.created_time.getTime() : new Date(a.created_time).getTime();
+      const bTime = b.created_time instanceof Date ? b.created_time.getTime() : new Date(b.created_time).getTime();
+      return aTime - bTime;
+    });
   }
 
   return conversationMap;
@@ -140,19 +149,20 @@ async function analyzeConversation(conversationId: string, messages: Message[]):
 
     // Store analysis results
     const analyses = response.messages.map((result: AnalysisResult, index: number) => ({
-      message_id: messagesToAnalyze[index].id,
+      messageId: messagesToAnalyze[index].id,
       language: result.language || 'unknown',
       category: result.category || 'others',
       tag: result.tag || 'cs', // Single tag
       confidence: result.confidence || 0.5,
-      model_version: MODEL,
+      modelVersion: MODEL,
     }));
 
-    const { error: insertError } = await supabase
-      .from('MessageAnalysis')
-      .upsert(analyses, { onConflict: 'message_id' });
-
-    if (insertError) {
+    try {
+      await prisma.messageAnalysis.createMany({
+        data: analyses,
+        skipDuplicates: true,
+      });
+    } catch (insertError) {
       console.error(`[Analyze] Error storing analysis for conversation ${conversationId}:`, insertError);
       throw insertError;
     }
@@ -176,36 +186,35 @@ async function analyzeConversation(conversationId: string, messages: Message[]):
 
     for (const msg of messages) {
       // First, check if failure already exists
-      const { data: existing } = await supabase
-        .from('AnalysisFailures')
-        .select('attempts')
-        .eq('message_id', msg.id)
-        .single();
+      const existing = await prisma.analysisFailures.findUnique({
+        where: { messageId: msg.id },
+        select: { attempts: true },
+      });
 
       if (existing) {
         // Update existing failure record
-        await supabase
-          .from('AnalysisFailures')
-          .update({
+        await prisma.analysisFailures.update({
+          where: { messageId: msg.id },
+          data: {
             attempts: existing.attempts + 1,
-            last_attempt: new Date().toISOString(),
-            next_retry: nextRetry.toISOString(),
-            error_message: err?.message || 'Unknown error',
-            error_type: errorType,
-          })
-          .eq('message_id', msg.id);
+            lastAttempt: new Date(),
+            nextRetry: nextRetry,
+            errorMessage: err?.message || 'Unknown error',
+            errorType: errorType,
+          },
+        });
       } else {
         // Insert new failure record
-        await supabase
-          .from('AnalysisFailures')
-          .insert({
-            message_id: msg.id,
-            conversation_id: conversationId,
-            error_message: err?.message || 'Unknown error',
-            error_type: errorType,
+        await prisma.analysisFailures.create({
+          data: {
+            messageId: msg.id,
+            conversationId: conversationId,
+            errorMessage: err?.message || 'Unknown error',
+            errorType: errorType,
             attempts: 1,
-            next_retry: nextRetry.toISOString(),
-          });
+            nextRetry: nextRetry,
+          },
+        });
       }
     }
   }
@@ -215,13 +224,18 @@ async function analyzeConversation(conversationId: string, messages: Message[]):
  * Process failed messages that are ready for retry
  */
 async function retryFailedMessages(): Promise<void> {
-  const { data: failures, error } = await supabase
-    .from('FailedMessagesForRetry')
-    .select('message_id, conversation_id, attempts')
-    .limit(50);
+  // Query the view using raw SQL since it's a database view
+  const failures = await prisma.$queryRaw<Array<{
+    message_id: string;
+    conversation_id: string;
+    attempts: number;
+  }>>`
+    SELECT message_id, conversation_id, attempts
+    FROM "FailedMessagesForRetry"
+    LIMIT 50
+  `;
 
-  if (error || !failures?.length) {
-    if (error) console.error('[Retry] Error fetching failures:', error);
+  if (!failures?.length) {
     return;
   }
 
@@ -238,13 +252,28 @@ async function retryFailedMessages(): Promise<void> {
 
   // Fetch and retry each conversation
   for (const [convId, messageIds] of convMap.entries()) {
-    const { data: messages } = await supabase
-      .from('Message')
-      .select('id, conversationid, actor_type, message_parts, created_time')
-      .in('id', messageIds);
+    const messages = await prisma.message.findMany({
+      where: {
+        id: { in: messageIds },
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        actor_type: true,
+        message_parts: true,
+        created_time: true,
+      },
+    });
 
     if (messages?.length) {
-      await analyzeConversation(convId, messages as Message[]);
+      // Convert message_parts to string for the Message interface
+      const convertedMessages = messages.map(m => ({
+        ...m,
+        message_parts: typeof m.message_parts === 'string' 
+          ? m.message_parts 
+          : JSON.stringify(m.message_parts),
+      }));
+      await analyzeConversation(convId, convertedMessages as Message[]);
     }
   }
 }

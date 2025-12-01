@@ -11,21 +11,14 @@ if (fs.existsSync(localEnvPath)) {
 }
 
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js';
+import { prisma } from './lib/prisma';
 
-const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) as string | undefined;
-const SUPABASE_SERVICE_ROLE_KEY = (process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) as string | undefined;
-const SUPABASE_ANON_KEY = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) as string | undefined;
-
-if (!SUPABASE_URL || (!SUPABASE_SERVICE_ROLE_KEY && !SUPABASE_ANON_KEY)) {
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
   // eslint-disable-next-line no-console
-  console.error('Missing Supabase envs: need URL and either SERVICE_ROLE_KEY or ANON_KEY');
+  console.error('Missing DATABASE_URL environment variable.');
   process.exit(1);
 }
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY!, {
-  auth: { persistSession: false },
-});
 
 const VERBOSE_LOG = String(process.env.VERBOSE_LOG || '') === '1';
 const FRESHCHAT_TOKEN = process.env.FRESHCHAT_TOKEN as string | undefined;
@@ -77,17 +70,22 @@ async function fetchConversation(conversationId: string) {
 async function upsertConversation(convo: any, convoId: string) {
   const row = {
     id: convoId,
-    userid: convo.userId || convo.user_id,
+    userId: convo.userId || convo.user_id,
     status: convo.status || '',
     channel_id: convo.channel_id || '',
-    created_time: new Date(convo.created_time || convo.created_at || Date.now()).toISOString(),
-    updated_time: new Date(convo.updated_time || convo.updated_at || Date.now()).toISOString(),
-    assigned_to: JSON.stringify(convo.assigned_to || {}),
+    created_time: new Date(convo.created_time || convo.created_at || Date.now()),
+    updated_time: new Date(convo.updated_time || convo.updated_at || Date.now()),
+    assigned_to: typeof convo.assigned_to === 'string' ? convo.assigned_to : JSON.stringify(convo.assigned_to || {}),
     custom_properties: convo.custom_properties || {},
   };
-  const { error } = await supabase.from('Conversation').upsert(row, { onConflict: 'id' });
-  if (error) {
-    if (VERBOSE_LOG) console.error('[Supabase] upsert Conversation error:', error);
+  try {
+    await prisma.conversation.upsert({
+      where: { id: row.id },
+      update: row,
+      create: row,
+    });
+  } catch (error) {
+    if (VERBOSE_LOG) console.error('[Prisma] upsert Conversation error:', error);
     throw error;
   }
 }
@@ -100,18 +98,20 @@ async function refetchUnresolvedConversations() {
   const maxAge = new Date(Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
   
   // Get ALL unresolved conversations (not too old)
-  const { data: unresolvedConvos, error } = await supabase
-    .from('Conversation')
-    .select('id, userid, status, updated_time, created_time')
-    .neq('status', 'resolved')
-    .gt('created_time', maxAge.toISOString()) // Only conversations < 30 days old
-    .order('updated_time', { ascending: true }); // Check oldest first
-  
-  if (error) {
-    // eslint-disable-next-line no-console
-    console.error('[Refetch] Error fetching unresolved conversations:', error);
-    return { checked: 0, resolved: 0, updated: 0, errors: 0 };
-  }
+  const unresolvedConvos = await prisma.conversation.findMany({
+    where: {
+      status: { not: 'resolved' },
+      created_time: { gt: maxAge },
+    },
+    select: {
+      id: true,
+      userId: true,
+      status: true,
+      updated_time: true,
+      created_time: true,
+    },
+    orderBy: { updated_time: 'asc' }, // Check oldest first
+  });
 
   if (!unresolvedConvos || unresolvedConvos.length === 0) {
     // eslint-disable-next-line no-console
@@ -139,11 +139,11 @@ async function refetchUnresolvedConversations() {
       // Check if status or updated_time changed
       const statusChanged = freshStatus !== dbConvo.status;
       const timeChanged = freshUpdatedTime && 
-        new Date(freshUpdatedTime).getTime() !== new Date(dbConvo.updated_time).getTime();
+        new Date(freshUpdatedTime).getTime() !== dbConvo.updated_time.getTime();
       
       if (statusChanged || timeChanged) {
         // Update conversation in DB
-        await upsertConversation({ ...freshConvo, userId: dbConvo.userid }, dbConvo.id);
+        await upsertConversation({ ...freshConvo, userId: dbConvo.userId }, dbConvo.id);
         updated++;
         
         if (freshStatus === 'resolved') {

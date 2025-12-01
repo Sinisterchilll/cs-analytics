@@ -7,51 +7,87 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String   @id
-  phone_no     String
-  created_time DateTime
-  conversations Conversation[]
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model AnalysisFailures {
+  messageId      String    @id @map("message_id")
+  conversationId String    @map("conversation_id")
+  errorMessage   String?  @map("error_message")
+  errorType       String?  @map("error_type") @db.VarChar(50)
+  attempts        Int?     @default(1)
+  lastAttempt     DateTime? @default(now()) @map("last_attempt") @db.Timestamptz(6)
+  nextRetry       DateTime? @map("next_retry") @db.Timestamptz(6)
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  message         Message  @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  
+  @@map("AnalysisFailures")
 }
 
 model Conversation {
-  id                String   @id
-  userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String    @id
+  userId            String    @map("userid")
   status            String
   channel_id        String
-  created_time      DateTime
-  updated_time      DateTime
+  created_time      DateTime  @db.Timestamptz(6)
+  updated_time      DateTime  @db.Timestamptz(6)
   assigned_to       String
-  custom_properties Json
+  custom_properties Json      @default("[]")
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   messages          Message[]
-  @@index([userId])
-  @@index([created_time])
-  @@index([updated_time])
+
+  @@index([created_time], map: "idx_convo_created")
+  @@index([updated_time], map: "idx_convo_updated")
+  @@index([userId], map: "idx_convo_user")
+  @@map("Conversation")
 }
 
 model Message {
-  id              String   @id
-  conversationId  String
-  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  actor_type      String
-  message_parts   Json
-  created_time    DateTime
-  rating          Int?
-  @@index([conversationId])
-  @@index([created_time])
+  id               String            @id
+  conversationId   String            @map("conversationid")
+  actor_type       String
+  message_parts    String            @default("[]")
+  created_time     DateTime          @db.Timestamptz(6)
+  rating           Int?
+  failures         AnalysisFailures?
+  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  analyses         MessageAnalysis?
+
+  @@index([conversationId], map: "idx_msg_convo")
+  @@index([created_time], map: "idx_msg_created")
+  @@map("Message")
 }
 
-model AggregatedMetric {
-  id               Int       @id @default(autoincrement())
-  fetch_time       DateTime  @unique
-  resolutionRate   Float
-  transferRate     Float
-  resolutionSplit  Json
-  csatAvg          Float?
-  sessionVolume    Int
-  avgResponseTime  Float
-  unansweredCount  Int
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model MessageAnalysis {
+  id            Int       @id @default(autoincrement())
+  messageId     String   @unique @map("message_id")
+  language      String?   @db.VarChar(10)
+  category      String?   @db.VarChar(50)
+  tag           String?   @db.VarChar(20)
+  confidence    Float?
+  analyzedAt    DateTime? @default(now()) @map("analyzed_at") @db.Timestamptz(6)
+  modelVersion  String?   @default("gpt-4o-mini-2024-07-18") @map("model_version") @db.VarChar(30)
+  message       Message   @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([category], map: "idx_msg_analysis_category")
+  @@index([language], map: "idx_msg_analysis_language")
+  @@index([messageId], map: "idx_msg_analysis_message")
+  @@index([tag], map: "idx_msg_analysis_tag")
+  @@map("MessageAnalysis")
 }
 
+model Referral {
+  id            String   @id
+  referrerName  String
+  referrerPhone String
+  refereePhone  String
+  createdAt     DateTime @default(now())
+}
 
+model User {
+  id           String         @id
+  phone_no     String
+  created_time DateTime       @db.Timestamptz(6)
+  conversations Conversation[]
+  @@map("User")
+}

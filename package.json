@@ -13,6 +13,7 @@
     "backfill:run": "tsx backfillMessages.ts"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.0",
     "@supabase/supabase-js": "^2.45.4",
     "axios": "^1.13.1",
     "dotenv": "^16.4.5",
@@ -29,6 +30,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
+    "prisma": "^6.19.0",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "tsx": "^4.20.6",

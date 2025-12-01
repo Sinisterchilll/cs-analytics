@@ -9,21 +9,14 @@ if (fs.existsSync(localEnvPath)) {
   dotenv.config();
 }
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js';
+import { prisma } from './lib/prisma';
 
-const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) as string | undefined;
-const SUPABASE_SERVICE_ROLE_KEY = (process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) as string | undefined;
-const SUPABASE_ANON_KEY = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) as string | undefined;
-
-if (!SUPABASE_URL || (!SUPABASE_SERVICE_ROLE_KEY && !SUPABASE_ANON_KEY)) {
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
   // eslint-disable-next-line no-console
-  console.error('Missing Supabase envs: need URL and either SERVICE_ROLE_KEY or ANON_KEY (supports NEXT_PUBLIC_* or server-only names).');
+  console.error('Missing DATABASE_URL environment variable.');
   process.exit(1);
 }
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY!, {
-  auth: { persistSession: false },
-});
 
 const VERBOSE_LOG = String(process.env.VERBOSE_LOG || '') === '1';
 const LOOKBACK_HOURS = Number(process.env.LOOKBACK_HOURS || 2);
@@ -116,11 +109,16 @@ async function upsertUser(user: any) {
   const row = {
     id: user.id,
     phone_no: user.phone || user.phone_number || '',
-    created_time: new Date(user.created_time || user.created_at || Date.now()).toISOString(),
+    created_time: new Date(user.created_time || user.created_at || Date.now()),
   };
-  const { error } = await supabase.from('User').upsert(row, { onConflict: 'id' });
-  if (error) {
-    if (VERBOSE_LOG) console.error('[Supabase] upsert User error:', error);
+  try {
+    await prisma.user.upsert({
+      where: { id: row.id },
+      update: row,
+      create: row,
+    });
+  } catch (error) {
+    if (VERBOSE_LOG) console.error('[Prisma] upsert User error:', error);
     throw error;
   }
 }
@@ -128,17 +126,22 @@ async function upsertUser(user: any) {
 async function upsertConversation(convo: any, overrideId?: string) {
   const row = {
     id: overrideId || convo.id || convo.uuid || '',
-    userid: convo.userId || (convo?.users?.[0]?.id) || convo?.user_id || '',
+    userId: convo.userId || (convo?.users?.[0]?.id) || convo?.user_id || '',
     status: convo.status || '',
     channel_id: convo.channel_id || '',
-    created_time: new Date(convo.created_time || convo.created_at || Date.now()).toISOString(),
-    updated_time: new Date(convo.updated_time || convo.updated_at || convo.created_time || Date.now()).toISOString(),
+    created_time: new Date(convo.created_time || convo.created_at || Date.now()),
+    updated_time: new Date(convo.updated_time || convo.updated_at || convo.created_time || Date.now()),
     assigned_to: (convo?.assigned_to?.id || convo?.assigned_to || '') + '',
     custom_properties: convo.custom_properties || {},
   };
-  const { error } = await supabase.from('Conversation').upsert(row, { onConflict: 'id' });
-  if (error) {
-    if (VERBOSE_LOG) console.error('[Supabase] upsert Conversation error:', error);
+  try {
+    await prisma.conversation.upsert({
+      where: { id: row.id },
+      update: row,
+      create: row,
+    });
+  } catch (error) {
+    if (VERBOSE_LOG) console.error('[Prisma] upsert Conversation error:', error);
     throw error;
   }
 }
@@ -191,15 +194,20 @@ async function upsertMessage(msg: any, conversationId: string) {
   
   const row = {
     id: msg.id || msg.uuid || `${conversationId}-${new Date(msg.created_time || msg.created_at || Date.now()).toISOString()}`,
-    conversationid: conversationId,
+    conversationId: conversationId,
     actor_type: msg.actor_type || '',
-    message_parts: cleanContent, // Store cleaned text instead of raw JSON
-    created_time: new Date(msg.created_time || msg.created_at || Date.now()).toISOString(),
+    message_parts: cleanContent, // Store cleaned text as string
+    created_time: new Date(msg.created_time || msg.created_at || Date.now()),
     rating: msg.rating ?? null,
   };
-  const { error } = await supabase.from('Message').upsert(row, { onConflict: 'id' });
-  if (error) {
-    if (VERBOSE_LOG) console.error('[Supabase] upsert Message error:', error);
+  try {
+    await prisma.message.upsert({
+      where: { id: row.id },
+      update: row,
+      create: row,
+    });
+  } catch (error) {
+    if (VERBOSE_LOG) console.error('[Prisma] upsert Message error:', error);
     throw error;
   }
 }

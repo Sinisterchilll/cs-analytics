@@ -11,20 +11,13 @@ if (fs.existsSync(localEnvPath)) {
 }
 
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js';
+import { prisma } from './lib/prisma';
 
-const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) as string | undefined;
-const SUPABASE_SERVICE_ROLE_KEY = (process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) as string | undefined;
-const SUPABASE_ANON_KEY = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) as string | undefined;
-
-if (!SUPABASE_URL || (!SUPABASE_SERVICE_ROLE_KEY && !SUPABASE_ANON_KEY)) {
-  console.error('Missing Supabase envs');
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('Missing DATABASE_URL environment variable.');
   process.exit(1);
 }
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY!, {
-  auth: { persistSession: false },
-});
 
 const FRESHCHAT_TOKEN = process.env.FRESHCHAT_TOKEN;
 const FRESHCHAT_DOMAIN = process.env.FRESHCHAT_DOMAIN;
@@ -168,18 +161,18 @@ async function upsertMessage(msg: any, conversationId: string): Promise<boolean>
     
     const row = {
       id: msg.id || msg.uuid || `${conversationId}-${new Date(msg.created_time || msg.created_at || Date.now()).toISOString()}`,
-      conversationid: conversationId,
+      conversationId: conversationId,
       actor_type: msg.actor_type || '',
       message_parts: cleanContent,
-      created_time: new Date(msg.created_time || msg.created_at || Date.now()).toISOString(),
+      created_time: new Date(msg.created_time || msg.created_at || Date.now()),
       rating: msg.rating ?? null,
     };
 
-    const { error } = await supabase.from('Message').upsert(row, { onConflict: 'id' });
-    if (error) {
-      if (VERBOSE_LOG) console.error('[Supabase] upsert Message error:', error);
-      return false;
-    }
+    await prisma.message.upsert({
+      where: { id: row.id },
+      update: row,
+      create: row,
+    });
     return true;
   } catch (err: any) {
     if (VERBOSE_LOG) console.error('[upsertMessage] error:', err?.message);
@@ -189,17 +182,12 @@ async function upsertMessage(msg: any, conversationId: string): Promise<boolean>
 
 async function getExistingMessageIds(conversationId: string): Promise<Set<string>> {
   try {
-    const { data, error } = await supabase
-      .from('Message')
-      .select('id')
-      .eq('conversationid', conversationId);
+    const messages = await prisma.message.findMany({
+      where: { conversationId: conversationId },
+      select: { id: true },
+    });
     
-    if (error) {
-      console.error(`[Supabase] Error fetching messages for ${conversationId}:`, error);
-      return new Set();
-    }
-    
-    return new Set((data || []).map((m: Message) => m.id));
+    return new Set(messages.map((m) => m.id));
   } catch (err: any) {
     console.error(`[getExistingMessageIds] error:`, err?.message);
     return new Set();
@@ -286,14 +274,13 @@ async function backfillAllMessages() {
   try {
     // Fetch all conversations from database
     console.log('[Backfill] Fetching all conversations from database...');
-    const { data: conversations, error } = await supabase
-      .from('Conversation')
-      .select('id, created_time')
-      .order('created_time', { ascending: true }); // Process oldest first
-    
-    if (error) {
-      throw new Error(`Failed to fetch conversations: ${error.message}`);
-    }
+    const conversations = await prisma.conversation.findMany({
+      select: {
+        id: true,
+        created_time: true,
+      },
+      orderBy: { created_time: 'asc' }, // Process oldest first
+    });
     
     if (!conversations || conversations.length === 0) {
       console.log('[Backfill] No conversations found in database.');
